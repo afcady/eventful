@@ -18,11 +18,15 @@ dependencies:
 
   - aeson
   - bytestring
+  - containers
+  - http-api-data
+  - lens
   - mtl
+  - path-pieces
   - persistent
   - persistent-sqlite
-  - persistent-template
   - split
+  - text
   - uuid
 
 default-extensions:

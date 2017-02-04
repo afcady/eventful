@@ -1,5 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE QuasiQuotes #-}  -- This is here so Hlint doesn't choke
 
 -- | Defines an Sqlite event store.
 
@@ -23,21 +23,11 @@ import Data.List.Split (chunksOf)
 import Data.Maybe (listToMaybe, maybe)
 import Database.Persist
 import Database.Persist.Sql
-import Database.Persist.TH
 
 import Eventful.Store.Class
 import Eventful.Store.Sqlite.Internal
+import Eventful.Store.Sqlite.Entity
 import Eventful.UUID
-
-share [mkPersist sqlSettings, mkMigrate "migrateSqliteEvent"] [persistLowerCase|
-SqliteEvent sql=events
-    Id SequenceNumber sql=sequence_number
-    projectionId UUID
-    version EventVersion
-    data JSONString
-    UniqueAggregateVersion projectionId version
-    deriving Show
-|]
 
 -- | The @store@ for SQLite is currently the @Unit@ type @()@. That is, all the
 -- info we need to run an SQLite event store is presumably stored in the
