@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 -- | This module defines the persistent entity to use with the SQLite event
 -- store.
 
@@ -16,36 +18,36 @@ import qualified Data.Map as Map
 import Data.Monoid ((<>))
 import Database.Persist
 import Database.Persist.Sql
+import Data.Proxy
 import qualified Data.Text as T
 import Web.HttpApiData
 import Web.PathPieces
 
 import Eventful.Store.Class
-import Eventful.Store.Sqlite.Internal
 import Eventful.UUID
 
-data SqliteEvent
+data SqliteEvent serialized
   = SqliteEvent
   { sqliteEventProjectionId :: !UUID
   , sqliteEventVersion :: !EventVersion
-  , sqliteEventData :: !JSONString
+  , sqliteEventData :: !serialized
   } deriving (Show)
 
-type SqliteEventId = Key SqliteEvent
+type SqliteEventId serialized = Key (SqliteEvent serialized)
 
-instance PersistEntity SqliteEvent where
-  newtype Key SqliteEvent = SqliteEventKey { unSqliteEventKey :: SequenceNumber }
+instance (PersistField serialized) => PersistEntity (SqliteEvent serialized) where
+  newtype Key (SqliteEvent serialized) = SqliteEventKey { unSqliteEventKey :: SequenceNumber }
     deriving (Show, Read, Eq, Ord, PathPiece, ToHttpApiData, FromHttpApiData,
               PersistField, PersistFieldSql, ToJSON, FromJSON)
 
-  data EntityField SqliteEvent typ where
-    SqliteEventId :: EntityField SqliteEvent SqliteEventId
-    SqliteEventProjectionId :: EntityField SqliteEvent UUID
-    SqliteEventVersion :: EntityField SqliteEvent EventVersion
-    SqliteEventData :: EntityField SqliteEvent JSONString
+  data EntityField (SqliteEvent serialized) typ where
+    SqliteEventId :: EntityField (SqliteEvent serialized) (SqliteEventId serialized)
+    SqliteEventProjectionId :: EntityField (SqliteEvent serialized) UUID
+    SqliteEventVersion :: EntityField (SqliteEvent serialized) EventVersion
+    SqliteEventData :: EntityField (SqliteEvent serialized) serialized
 
-  data Unique SqliteEvent = UniqueAggregateVersion UUID EventVersion
-  type PersistEntityBackend SqliteEvent = SqlBackend
+  data Unique (SqliteEvent serialized) = UniqueAggregateVersion UUID EventVersion
+  type PersistEntityBackend (SqliteEvent serialized) = SqlBackend
 
   keyToValues = (: []) . toPersistValue . unSqliteEventKey
   keyFromValues = fmap SqliteEventKey . fromPersistValue . _persistentHeadNote
@@ -102,7 +104,7 @@ instance PersistEntity SqliteEvent where
     FieldDef
     (HaskellName (T.pack "data"))
     (DBName (T.pack "data"))
-    (FTTypeCon Nothing (T.pack "JSONString"))
+    (FTTypeCon Nothing (T.pack "serialized"))
     SqlBlob
     []
     True
@@ -143,7 +145,7 @@ instance PersistEntity SqliteEvent where
       FieldDef
       (HaskellName (T.pack "data"))
       (DBName (T.pack "data"))
-      (FTTypeCon Nothing (T.pack "JSONString"))
+      (FTTypeCon Nothing (T.pack "serialized"))
       SqlBlob
       []
       True
@@ -205,7 +207,7 @@ migrateSqliteEvent = do
           FieldDef
           (HaskellName (T.pack "data"))
           (DBName (T.pack "data"))
-          (FTTypeCon Nothing (T.pack "JSONString"))
+          (FTTypeCon Nothing (T.pack "serialized"))
           SqlBlob
           []
           True
@@ -256,7 +258,7 @@ migrateSqliteEvent = do
         FieldDef
         (HaskellName (T.pack "data"))
         (DBName (T.pack "data"))
-        (FTTypeCon Nothing (T.pack "JSONString"))
+        (FTTypeCon Nothing (T.pack "serialized"))
         SqlBlob
         []
         True
@@ -285,3 +287,31 @@ type Lens s t a b = forall f. Functor f => (a -> f b) -> s -> f t
 
 lensPTH :: (s -> a) -> (s -> b -> t) -> Lens s t a b
 lensPTH sa sbt afb s = fmap (sbt s) (afb $ sa s)
+
+
+-- Orphan instances
+
+instance PersistField UUID where
+  toPersistValue = PersistText . uuidToText
+  fromPersistValue (PersistText t) =
+    case uuidFromText t of
+      Just x -> Right x
+      Nothing -> Left "Invalid UUID"
+  fromPersistValue _ = Left "Not PersistDBSpecific"
+
+instance PersistFieldSql UUID where
+  sqlType _ = SqlOther "uuid"
+
+instance PersistField EventVersion where
+  toPersistValue = toPersistValue . unEventVersion
+  fromPersistValue = fmap EventVersion . fromPersistValue
+
+instance PersistFieldSql EventVersion where
+  sqlType _ = sqlType (Proxy :: Proxy Int)
+
+instance PersistField SequenceNumber where
+  toPersistValue = toPersistValue . unSequenceNumber
+  fromPersistValue = fmap SequenceNumber . fromPersistValue
+
+instance PersistFieldSql SequenceNumber where
+  sqlType _ = sqlType (Proxy :: Proxy Int)

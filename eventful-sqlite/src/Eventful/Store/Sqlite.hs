@@ -21,6 +21,7 @@ module Eventful.Store.Sqlite
 import Control.Monad.Reader
 import Data.List.Split (chunksOf)
 import Data.Maybe (listToMaybe, maybe)
+import Data.Proxy
 import Database.Persist
 import Database.Persist.Sql
 
@@ -34,11 +35,11 @@ import Eventful.UUID
 -- database connection. In the future this will probably hold information like
 -- what tables are used to store events, and could hold type information if we
 -- allow the user to select the serialization method.
-type SqliteEventStore m = EventStore () JSONString (SqlPersistT m)
+type SqliteEventStore serialized m = EventStore () serialized (SqlPersistT m)
 
-type SqliteEventStoreT m = EventStoreT () JSONString (SqlPersistT m)
+type SqliteEventStoreT serialized m = EventStoreT () serialized (SqlPersistT m)
 
-sqliteEventStore :: (MonadIO m) => SqliteEventStore m
+sqliteEventStore :: (PersistField serialized, MonadIO m) => SqliteEventStore serialized m
 sqliteEventStore =
   EventStore () $
     EventStoreDefinition
@@ -49,7 +50,7 @@ sqliteEventStore =
     (const sqliteStoreEvents)
     (const getAllEventsFromSequence)
 
-sqliteEventToStored :: Entity SqliteEvent -> StoredEvent JSONString
+sqliteEventToStored :: Entity (SqliteEvent serialized) -> StoredEvent serialized
 sqliteEventToStored (Entity (SqliteEventKey seqNum) (SqliteEvent uuid version data')) =
   StoredEvent uuid version seqNum data'
 
@@ -62,7 +63,9 @@ getProjectionIds :: (MonadIO m) => ReaderT SqlBackend m [UUID]
 getProjectionIds =
   fmap unSingle <$> rawSql "SELECT DISTINCT projection_id FROM events" []
 
-getSqliteAggregateEvents :: (MonadIO m) => UUID -> Maybe EventVersion -> ReaderT SqlBackend m [StoredEvent JSONString]
+getSqliteAggregateEvents
+  :: (PersistField serialized, MonadIO m)
+  => UUID -> Maybe EventVersion -> ReaderT SqlBackend m [StoredEvent serialized]
 getSqliteAggregateEvents uuid mVers = do
   let
     constraints =
@@ -71,7 +74,9 @@ getSqliteAggregateEvents uuid mVers = do
   entities <- selectList constraints [Asc SqliteEventVersion]
   return $ sqliteEventToStored <$> entities
 
-getAllEventsFromSequence :: (MonadIO m) => SequenceNumber -> ReaderT SqlBackend m [StoredEvent JSONString]
+getAllEventsFromSequence
+  :: (PersistField serialized, MonadIO m)
+  => SequenceNumber -> ReaderT SqlBackend m [StoredEvent serialized]
 getAllEventsFromSequence seqNum = do
   entities <- selectList [SqliteEventId >=. SqliteEventKey seqNum] [Asc SqliteEventId]
   return $ sqliteEventToStored <$> entities
@@ -81,7 +86,9 @@ maxEventVersion uuid =
   let rawVals = rawSql "SELECT IFNULL(MAX(version), -1) FROM events WHERE projection_id = ?" [toPersistValue uuid]
   in maybe 0 unSingle . listToMaybe <$> rawVals
 
-sqliteStoreEvents :: (MonadIO m) => UUID -> [JSONString] -> SqlPersistT m [StoredEvent JSONString]
+sqliteStoreEvents
+  :: (PersistField serialized, MonadIO m)
+  => UUID -> [serialized] -> SqlPersistT m [StoredEvent serialized]
 sqliteStoreEvents uuid events = do
   versionNum <- maxEventVersion uuid
   let entities = zipWith (SqliteEvent uuid) [versionNum + 1..] events
