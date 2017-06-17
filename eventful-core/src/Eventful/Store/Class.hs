@@ -2,12 +2,15 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Eventful.Store.Class
   ( -- * EventStore
     EventStore (..)
+  , changeEventStoreMonad
   , GloballyOrderedEventStore (..)
+  , changeGloballyOrderedEventStoreMonad
   , ExpectedVersion (..)
   , EventWriteError (..)
     -- * Utility types
@@ -45,12 +48,35 @@ data EventStore serialized m
     -- UUID.
   }
 
+-- | Converts an 'EventStore' that runs in monad @m1@ to run in monad @m2@.
+changeEventStoreMonad
+  :: EventStore serialized m1
+  -> (forall a. m1 a -> m2 a)
+  -> EventStore serialized m2
+changeEventStoreMonad EventStore{..} runAction =
+  EventStore
+  { getLatestVersion = runAction . getLatestVersion
+  , getEvents = \uuid mVersion -> runAction $ getEvents uuid mVersion
+  , storeEvents = \version uuid events -> runAction $ storeEvents version uuid events
+  }
+
 -- | Gets all the events ordered starting with a given 'SequenceNumber', and
 -- ordered by 'SequenceNumber'. This is used when replaying all the events in a
 -- store.
 newtype GloballyOrderedEventStore serialized m =
   GloballyOrderedEventStore
   { getSequencedEvents :: SequenceNumber -> m [GloballyOrderedEvent serialized]
+  }
+
+-- | Converts a 'GloballyOrderedEventStore' that runs in monad @m1@ to run in
+-- monad @m2@.
+changeGloballyOrderedEventStoreMonad
+  :: GloballyOrderedEventStore serialized m1
+  -> (forall a. m1 a -> m2 a)
+  -> GloballyOrderedEventStore serialized m2
+changeGloballyOrderedEventStoreMonad GloballyOrderedEventStore{..} runAction =
+  GloballyOrderedEventStore
+  { getSequencedEvents = runAction . getSequencedEvents
   }
 
 -- | ExpectedVersion is used to assert the event stream is at a certain version
